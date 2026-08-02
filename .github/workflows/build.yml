@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch: # Mengizinkan Anda menekan tombol "Run workflow" secara manual
 
 jobs:
   build:
@@ -23,88 +24,220 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      # Kunci perbaikan ada di sini: Memaksa penggunaan Gradle versi 8.4
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.4'
 
-      - name: Generate Gradle Configuration Files
+      - name: Generate Full Android Project
         run: |
+          # 1. Membuat struktur folder Android
+          mkdir -p app/src/main/java/com/example/universalcopy
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/xml
+
+          # 2. Membuat settings.gradle
           cat << 'EOF' > settings.gradle
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
           rootProject.name = "Universal Copy"
           include ':app'
           EOF
 
+          # 3. Membuat build.gradle (Root)
           cat << 'EOF' > build.gradle
           buildscript {
               ext.kotlin_version = '1.9.0'
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-              dependencies {
-                  classpath "com.android.tools.build:gradle:8.1.0"
-                  classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
-              }
+              repositories { google(); mavenCentral() }
+              dependencies { classpath "com.android.tools.build:gradle:8.1.0"; classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version" }
           }
-          task clean(type: Delete) {
-              delete rootProject.buildDir
-          }
+          task clean(type: Delete) { delete rootProject.buildDir }
           EOF
 
-          mkdir -p app
+          # 4. Membuat app/build.gradle
           cat << 'EOF' > app/build.gradle
-          plugins {
-              id 'com.android.application'
-              id 'org.jetbrains.kotlin.android'
-          }
+          plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
           android {
               namespace 'com.example.universalcopy'
               compileSdk 34
-
-              defaultConfig {
-                  applicationId "com.example.universalcopy"
-                  minSdk 24
-                  targetSdk 34
-                  versionCode 1
-                  versionName "1.0"
-              }
-
-              buildTypes {
-                  release {
-                      minifyEnabled false
-                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-                  }
-              }
-              
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
-              }
-              
-              kotlinOptions {
-                  jvmTarget = '17'
-              }
+              defaultConfig { applicationId "com.example.universalcopy"; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0" }
+              buildTypes { release { minifyEnabled false; proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' } }
+              compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+              kotlinOptions { jvmTarget = '17' }
           }
           dependencies {
               implementation 'androidx.core:core-ktx:1.12.0'
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.android.material:material:1.11.0'
+          }
+          EOF
+
+          # 5. Membuat AndroidManifest.xml
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE" />
+              <application android:allowBackup="true" android:label="Universal Copy" android:theme="@style/Theme.AppCompat.Light.DarkActionBar">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <service android:name=".CopyAccessibilityService" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="true">
+                      <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+                      <meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibility_service_config" />
+                  </service>
+              </application>
+          </manifest>
+          EOF
+
+          # 6. Membuat Konfigurasi Aksesibilitas
+          cat << 'EOF' > app/src/main/res/xml/accessibility_service_config.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeWindowStateChanged"
+              android:accessibilityFeedbackType="feedbackSpoken"
+              android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows"
+              android:canRetrieveWindowContent="true"
+              android:notificationTimeout="100" />
+          EOF
+
+          # 7. Membuat Layout (UI)
+          cat << 'EOF' > app/src/main/res/layout/activity_main.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent" android:layout_height="match_parent"
+              android:orientation="vertical" android:gravity="center" android:padding="24dp">
+              <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                  android:text="Pengaturan Universal Copy" android:textSize="22sp" android:textStyle="bold" android:layout_marginBottom="16dp"/>
+              <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                  android:text="1. Izinkan Notifikasi saat diminta.\n2. Aktifkan layanan aksesibilitas pada tombol di bawah."
+                  android:textAlignment="center" android:textSize="16sp" android:layout_marginBottom="32dp"/>
+              <Button android:id="@+id/btnOpenSettings" android:layout_width="match_parent" android:layout_height="56dp"
+                  android:text="Buka Pengaturan Aksesibilitas" android:textAllCaps="false" android:textSize="16sp"/>
+          </LinearLayout>
+          EOF
+
+          # 8. Membuat MainActivity.kt
+          cat << 'EOF' > app/src/main/java/com/example/universalcopy/MainActivity.kt
+          package com.example.universalcopy
+          import android.Manifest
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.os.Build
+          import android.os.Bundle
+          import android.provider.Settings
+          import android.widget.Button
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.core.app.ActivityCompat
+          import androidx.core.content.ContextCompat
+
+          class MainActivity : AppCompatActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_main)
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                      if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                          ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
+                      }
+                  }
+                  findViewById<Button>(R.id.btnOpenSettings).setOnClickListener {
+                      startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                  }
+              }
+          }
+          EOF
+
+          # 9. Membuat CopyAccessibilityService.kt
+          cat << 'EOF' > app/src/main/java/com/example/universalcopy/CopyAccessibilityService.kt
+          package com.example.universalcopy
+          import android.accessibilityservice.AccessibilityService
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.content.BroadcastReceiver
+          import android.content.ClipData
+          import android.content.ClipboardManager
+          import android.content.Context
+          import android.content.Intent
+          import android.content.IntentFilter
+          import android.os.Build
+          import android.view.accessibility.AccessibilityEvent
+          import android.view.accessibility.AccessibilityNodeInfo
+          import android.widget.Toast
+          import androidx.core.app.NotificationCompat
+
+          class CopyAccessibilityService : AccessibilityService() {
+              private val ACTION_TRIGGER_COPY = "com.example.universalcopy.TRIGGER_COPY"
+              private val copyReceiver = object : BroadcastReceiver() {
+                  override fun onReceive(context: Context?, intent: Intent?) {
+                      if (intent?.action == ACTION_TRIGGER_COPY) extractAndCopyText()
+                  }
+              }
+
+              override fun onServiceConnected() {
+                  super.onServiceConnected()
+                  val filter = IntentFilter(ACTION_TRIGGER_COPY)
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                      registerReceiver(copyReceiver, filter, RECEIVER_EXPORTED)
+                  } else {
+                      registerReceiver(copyReceiver, filter)
+                  }
+                  showPersistentNotification()
+              }
+
+              private fun showPersistentNotification() {
+                  val channelId = "universal_copy_service_channel"
+                  val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      notificationManager.createNotificationChannel(NotificationChannel(channelId, "Universal Copy Trigger", NotificationManager.IMPORTANCE_LOW))
+                  }
+                  val intent = Intent(ACTION_TRIGGER_COPY)
+                  val pendingIntent = PendingIntent.getBroadcast(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                  val notification = NotificationCompat.Builder(this, channelId)
+                      .setContentTitle("Universal Copy Siap")
+                      .setContentText("Ketuk untuk mengekstrak teks")
+                      .setSmallIcon(android.R.drawable.ic_menu_edit)
+                      .setContentIntent(pendingIntent)
+                      .setOngoing(true)
+                      .build()
+                  notificationManager.notify(1, notification)
+              }
+
+              private fun extractAndCopyText() {
+                  val rootNode = rootInActiveWindow
+                  if (rootNode == null) {
+                      Toast.makeText(this, "Gagal membaca layar", Toast.LENGTH_SHORT).show()
+                      return
+                  }
+                  val textList = mutableListOf<String>()
+                  traverseNode(rootNode, textList)
+                  if (textList.isNotEmpty()) {
+                      val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                      clipboard.setPrimaryClip(ClipData.newPlainText("Copied Text", textList.joinToString("\n")))
+                      Toast.makeText(this, "Teks disalin ke Clipboard", Toast.LENGTH_SHORT).show()
+                  } else {
+                      Toast.makeText(this, "Tidak ada teks yang ditemukan", Toast.LENGTH_SHORT).show()
+                  }
+              }
+
+              private fun traverseNode(node: AccessibilityNodeInfo?, textList: MutableList<String>) {
+                  if (node == null) return
+                  val text = node.text?.toString()
+                  val desc = node.contentDescription?.toString()
+                  if (!text.isNullOrBlank()) textList.add(text)
+                  else if (!desc.isNullOrBlank()) textList.add(desc)
+                  for (i in 0 until node.childCount) traverseNode(node.getChild(i), textList)
+              }
+
+              override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+              override fun onInterrupt() {}
+              override fun onDestroy() {
+                  super.onDestroy()
+                  unregisterReceiver(copyReceiver)
+              }
           }
           EOF
 
@@ -117,3 +250,4 @@ jobs:
           name: UniversalCopy-Native-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
+          
