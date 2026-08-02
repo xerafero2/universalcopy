@@ -147,7 +147,7 @@ jobs:
           }
           EOF
 
-          # Kode CopyAccessibilityService.kt yang telah dirombak
+          # Kode CopyAccessibilityService.kt dengan perbaikan koordinat (FLAG_LAYOUT_NO_LIMITS) dan pemanggilan variabel
           cat << 'EOF' > app/src/main/java/com/example/universalcopy/CopyAccessibilityService.kt
           package com.example.universalcopy
           import android.accessibilityservice.AccessibilityService
@@ -231,26 +231,27 @@ jobs:
                       return
                   }
 
-                  removeOverlay() // Bersihkan overlay sebelumnya jika ada
+                  removeOverlay()
 
                   overlayView = FrameLayout(this)
-                  overlayView?.setBackgroundColor(Color.parseColor("#99000000")) // Latar belakang redup
+                  overlayView?.setBackgroundColor(Color.parseColor("#99000000"))
 
+                  // Penambahan FLAG_LAYOUT_NO_LIMITS agar mengukur dari ujung layar perangkat
                   val params = WindowManager.LayoutParams(
                       WindowManager.LayoutParams.MATCH_PARENT,
                       WindowManager.LayoutParams.MATCH_PARENT,
                       WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
+                      WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or 
+                      WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                       PixelFormat.TRANSLUCENT
                   )
 
-                  // Tutup overlay jika area kosong diketuk
                   overlayView?.setOnClickListener { removeOverlay() }
 
-                  // Membuat gaya UI yang bersih dan profesional untuk kotak seleksi
                   val shape = GradientDrawable().apply {
-                      setColor(Color.parseColor("#332196F3")) // Biru transparan
-                      setStroke(3, Color.parseColor("#2196F3")) // Garis tepi biru solid
+                      setColor(Color.parseColor("#332196F3"))
+                      setStroke(3, Color.parseColor("#2196F3"))
                       cornerRadius = 8f
                   }
 
@@ -259,14 +260,17 @@ jobs:
                       highlight.background = shape
                       
                       val layoutParams = FrameLayout.LayoutParams(nodeData.rect.width(), nodeData.rect.height())
-                      layoutParams.leftMargin = nodeData.rect.left
-                      layoutParams.topMargin = nodeData.rect.top
                       highlight.layoutParams = layoutParams
+                      
+                      // Menggunakan koordinat mutlak (x dan y)
+                      highlight.x = nodeData.rect.left.toFloat()
+                      highlight.y = nodeData.rect.top.toFloat()
 
                       highlight.setOnClickListener {
                           val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                           clipboard.setPrimaryClip(ClipData.newPlainText("Copied Text", nodeData.text))
-                          Toast.makeText(this, "Disalin: \${nodeData.text.take(15)}...", Toast.LENGTH_SHORT).show()
+                          // Memperbaiki string interpolation
+                          Toast.makeText(this, "Disalin: ${nodeData.text.take(15)}...", Toast.LENGTH_SHORT).show()
                           removeOverlay()
                       }
                       
@@ -287,11 +291,9 @@ jobs:
                   if (node == null) return
                   val text = node.text?.toString() ?: node.contentDescription?.toString()
                   
-                  // Pastikan teks tidak kosong dan elemen terlihat di layar
                   if (!text.isNullOrBlank() && node.isVisibleToUser) {
                       val rect = Rect()
                       node.getBoundsInScreen(rect)
-                      // Filter koordinat yang tidak valid atau memiliki dimensi 0
                       if (rect.width() > 0 && rect.height() > 0) {
                           textList.add(NodeData(text, rect))
                       }
