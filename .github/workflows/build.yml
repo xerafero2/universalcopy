@@ -23,17 +23,18 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      # Menginstal Gradle langsung ke server GitHub
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      # Menjalankan build menggunakan perintah 'gradle' (bukan ./gradlew)
+      # Masuk ke folder android terlebih dahulu, lalu eksekusi gradle
       - name: Build Debug APK
-        run: gradle assembleDebug
+        run: cd android && gradle assembleDebug
 
+      # Mengambil hasil APK dari dalam struktur folder android/app/...
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: UniversalCopy-Native-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
+          
