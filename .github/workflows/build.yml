@@ -147,7 +147,7 @@ jobs:
           }
           EOF
 
-          # Kode CopyAccessibilityService.kt dengan perbaikan koordinat (FLAG_LAYOUT_NO_LIMITS) dan pemanggilan variabel
+          # Kode service dengan kalkulasi presisi Status Bar
           cat << 'EOF' > app/src/main/java/com/example/universalcopy/CopyAccessibilityService.kt
           package com.example.universalcopy
           import android.accessibilityservice.AccessibilityService
@@ -216,6 +216,15 @@ jobs:
                   notificationManager.notify(1, notification)
               }
 
+              private fun getStatusBarHeight(): Int {
+                  var result = 0
+                  val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+                  if (resourceId > 0) {
+                      result = resources.getDimensionPixelSize(resourceId)
+                  }
+                  return result
+              }
+
               private fun showSelectionOverlay() {
                   val rootNode = rootInActiveWindow
                   if (rootNode == null) {
@@ -234,42 +243,41 @@ jobs:
                   removeOverlay()
 
                   overlayView = FrameLayout(this)
-                  overlayView?.setBackgroundColor(Color.parseColor("#99000000"))
+                  overlayView?.setBackgroundColor(Color.parseColor("#80000000")) // Latar belakang redup 50%
 
-                  // Penambahan FLAG_LAYOUT_NO_LIMITS agar mengukur dari ujung layar perangkat
                   val params = WindowManager.LayoutParams(
                       WindowManager.LayoutParams.MATCH_PARENT,
                       WindowManager.LayoutParams.MATCH_PARENT,
                       WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
-                      WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or 
-                      WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                       PixelFormat.TRANSLUCENT
                   )
 
                   overlayView?.setOnClickListener { removeOverlay() }
 
+                  // Desain UI mewah dan profesional
                   val shape = GradientDrawable().apply {
-                      setColor(Color.parseColor("#332196F3"))
-                      setStroke(3, Color.parseColor("#2196F3"))
-                      cornerRadius = 8f
+                      setColor(Color.parseColor("#33FFFFFF")) 
+                      setStroke(3, Color.parseColor("#FFFFFF"))
+                      cornerRadius = 12f
                   }
+
+                  val statusBarOffset = getStatusBarHeight()
 
                   for (nodeData in textList) {
                       val highlight = View(this)
                       highlight.background = shape
                       
                       val layoutParams = FrameLayout.LayoutParams(nodeData.rect.width(), nodeData.rect.height())
-                      highlight.layoutParams = layoutParams
+                      layoutParams.leftMargin = nodeData.rect.left
+                      // Kompensasi presisi sumbu Y
+                      layoutParams.topMargin = nodeData.rect.top - statusBarOffset
                       
-                      // Menggunakan koordinat mutlak (x dan y)
-                      highlight.x = nodeData.rect.left.toFloat()
-                      highlight.y = nodeData.rect.top.toFloat()
+                      highlight.layoutParams = layoutParams
 
                       highlight.setOnClickListener {
                           val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                           clipboard.setPrimaryClip(ClipData.newPlainText("Copied Text", nodeData.text))
-                          // Memperbaiki string interpolation
                           Toast.makeText(this, "Disalin: ${nodeData.text.take(15)}...", Toast.LENGTH_SHORT).show()
                           removeOverlay()
                       }
