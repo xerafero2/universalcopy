@@ -35,13 +35,11 @@ jobs:
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/xml
 
-          # 1. Membuat gradle.properties untuk mengaktifkan AndroidX
           cat << 'EOF' > gradle.properties
           android.useAndroidX=true
           android.enableJetifier=true
           EOF
 
-          # 2. Membuat settings.gradle
           cat << 'EOF' > settings.gradle
           pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
           dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
@@ -49,7 +47,6 @@ jobs:
           include ':app'
           EOF
 
-          # 3. Membuat build.gradle (Root)
           cat << 'EOF' > build.gradle
           buildscript {
               ext.kotlin_version = '1.9.0'
@@ -59,7 +56,6 @@ jobs:
           task clean(type: Delete) { delete rootProject.buildDir }
           EOF
 
-          # 4. Membuat app/build.gradle
           cat << 'EOF' > app/build.gradle
           plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
           android {
@@ -77,7 +73,6 @@ jobs:
           }
           EOF
 
-          # 5. Membuat AndroidManifest.xml
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -98,7 +93,6 @@ jobs:
           </manifest>
           EOF
 
-          # 6. Membuat Konfigurasi Aksesibilitas
           cat << 'EOF' > app/src/main/res/xml/accessibility_service_config.xml
           <?xml version="1.0" encoding="utf-8"?>
           <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
@@ -109,7 +103,6 @@ jobs:
               android:notificationTimeout="100" />
           EOF
 
-          # 7. Membuat Layout (UI)
           cat << 'EOF' > app/src/main/res/layout/activity_main.xml
           <?xml version="1.0" encoding="utf-8"?>
           <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -125,7 +118,6 @@ jobs:
           </LinearLayout>
           EOF
 
-          # 8. Membuat MainActivity.kt
           cat << 'EOF' > app/src/main/java/com/example/universalcopy/MainActivity.kt
           package com.example.universalcopy
           import android.Manifest
@@ -155,7 +147,7 @@ jobs:
           }
           EOF
 
-          # 9. Membuat CopyAccessibilityService.kt
+          # Kode CopyAccessibilityService.kt yang telah dirombak
           cat << 'EOF' > app/src/main/java/com/example/universalcopy/CopyAccessibilityService.kt
           package com.example.universalcopy
           import android.accessibilityservice.AccessibilityService
@@ -168,22 +160,35 @@ jobs:
           import android.content.Context
           import android.content.Intent
           import android.content.IntentFilter
+          import android.graphics.Color
+          import android.graphics.PixelFormat
+          import android.graphics.Rect
+          import android.graphics.drawable.GradientDrawable
           import android.os.Build
+          import android.view.View
+          import android.view.WindowManager
           import android.view.accessibility.AccessibilityEvent
           import android.view.accessibility.AccessibilityNodeInfo
+          import android.widget.FrameLayout
           import android.widget.Toast
           import androidx.core.app.NotificationCompat
 
+          data class NodeData(val text: String, val rect: Rect)
+
           class CopyAccessibilityService : AccessibilityService() {
               private val ACTION_TRIGGER_COPY = "com.example.universalcopy.TRIGGER_COPY"
+              private var overlayView: FrameLayout? = null
+              private lateinit var windowManager: WindowManager
+
               private val copyReceiver = object : BroadcastReceiver() {
                   override fun onReceive(context: Context?, intent: Intent?) {
-                      if (intent?.action == ACTION_TRIGGER_COPY) extractAndCopyText()
+                      if (intent?.action == ACTION_TRIGGER_COPY) showSelectionOverlay()
                   }
               }
 
               override fun onServiceConnected() {
                   super.onServiceConnected()
+                  windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
                   val filter = IntentFilter(ACTION_TRIGGER_COPY)
                   if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                       registerReceiver(copyReceiver, filter, RECEIVER_EXPORTED)
@@ -203,7 +208,7 @@ jobs:
                   val pendingIntent = PendingIntent.getBroadcast(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                   val notification = NotificationCompat.Builder(this, channelId)
                       .setContentTitle("Universal Copy Siap")
-                      .setContentText("Ketuk untuk mengekstrak teks")
+                      .setContentText("Ketuk untuk memilih teks")
                       .setSmallIcon(android.R.drawable.ic_menu_edit)
                       .setContentIntent(pendingIntent)
                       .setOngoing(true)
@@ -211,29 +216,86 @@ jobs:
                   notificationManager.notify(1, notification)
               }
 
-              private fun extractAndCopyText() {
+              private fun showSelectionOverlay() {
                   val rootNode = rootInActiveWindow
                   if (rootNode == null) {
                       Toast.makeText(this, "Gagal membaca layar", Toast.LENGTH_SHORT).show()
                       return
                   }
-                  val textList = mutableListOf<String>()
+                  
+                  val textList = mutableListOf<NodeData>()
                   traverseNode(rootNode, textList)
-                  if (textList.isNotEmpty()) {
-                      val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                      clipboard.setPrimaryClip(ClipData.newPlainText("Copied Text", textList.joinToString("\n")))
-                      Toast.makeText(this, "Teks disalin ke Clipboard", Toast.LENGTH_SHORT).show()
-                  } else {
-                      Toast.makeText(this, "Tidak ada teks yang ditemukan", Toast.LENGTH_SHORT).show()
+
+                  if (textList.isEmpty()) {
+                      Toast.makeText(this, "Tidak ada teks yang terdeteksi", Toast.LENGTH_SHORT).show()
+                      return
+                  }
+
+                  removeOverlay() // Bersihkan overlay sebelumnya jika ada
+
+                  overlayView = FrameLayout(this)
+                  overlayView?.setBackgroundColor(Color.parseColor("#99000000")) // Latar belakang redup
+
+                  val params = WindowManager.LayoutParams(
+                      WindowManager.LayoutParams.MATCH_PARENT,
+                      WindowManager.LayoutParams.MATCH_PARENT,
+                      WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                      PixelFormat.TRANSLUCENT
+                  )
+
+                  // Tutup overlay jika area kosong diketuk
+                  overlayView?.setOnClickListener { removeOverlay() }
+
+                  // Membuat gaya UI yang bersih dan profesional untuk kotak seleksi
+                  val shape = GradientDrawable().apply {
+                      setColor(Color.parseColor("#332196F3")) // Biru transparan
+                      setStroke(3, Color.parseColor("#2196F3")) // Garis tepi biru solid
+                      cornerRadius = 8f
+                  }
+
+                  for (nodeData in textList) {
+                      val highlight = View(this)
+                      highlight.background = shape
+                      
+                      val layoutParams = FrameLayout.LayoutParams(nodeData.rect.width(), nodeData.rect.height())
+                      layoutParams.leftMargin = nodeData.rect.left
+                      layoutParams.topMargin = nodeData.rect.top
+                      highlight.layoutParams = layoutParams
+
+                      highlight.setOnClickListener {
+                          val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                          clipboard.setPrimaryClip(ClipData.newPlainText("Copied Text", nodeData.text))
+                          Toast.makeText(this, "Disalin: \${nodeData.text.take(15)}...", Toast.LENGTH_SHORT).show()
+                          removeOverlay()
+                      }
+                      
+                      overlayView?.addView(highlight)
+                  }
+                  
+                  windowManager.addView(overlayView, params)
+              }
+
+              private fun removeOverlay() {
+                  overlayView?.let {
+                      windowManager.removeView(it)
+                      overlayView = null
                   }
               }
 
-              private fun traverseNode(node: AccessibilityNodeInfo?, textList: MutableList<String>) {
+              private fun traverseNode(node: AccessibilityNodeInfo?, textList: MutableList<NodeData>) {
                   if (node == null) return
-                  val text = node.text?.toString()
-                  val desc = node.contentDescription?.toString()
-                  if (!text.isNullOrBlank()) textList.add(text)
-                  else if (!desc.isNullOrBlank()) textList.add(desc)
+                  val text = node.text?.toString() ?: node.contentDescription?.toString()
+                  
+                  // Pastikan teks tidak kosong dan elemen terlihat di layar
+                  if (!text.isNullOrBlank() && node.isVisibleToUser) {
+                      val rect = Rect()
+                      node.getBoundsInScreen(rect)
+                      // Filter koordinat yang tidak valid atau memiliki dimensi 0
+                      if (rect.width() > 0 && rect.height() > 0) {
+                          textList.add(NodeData(text, rect))
+                      }
+                  }
                   for (i in 0 until node.childCount) traverseNode(node.getChild(i), textList)
               }
 
@@ -242,6 +304,7 @@ jobs:
               override fun onDestroy() {
                   super.onDestroy()
                   unregisterReceiver(copyReceiver)
+                  removeOverlay()
               }
           }
           EOF
