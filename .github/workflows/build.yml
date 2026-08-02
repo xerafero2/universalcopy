@@ -7,7 +7,7 @@ on:
   pull_request:
     branches:
       - main
-  workflow_dispatch: # Mengizinkan Anda menekan tombol "Run workflow" secara manual
+  workflow_dispatch:
 
 jobs:
   build:
@@ -31,10 +31,15 @@ jobs:
 
       - name: Generate Full Android Project
         run: |
-          # 1. Membuat struktur folder Android
           mkdir -p app/src/main/java/com/example/universalcopy
           mkdir -p app/src/main/res/layout
           mkdir -p app/src/main/res/xml
+
+          # 1. Membuat gradle.properties untuk mengaktifkan AndroidX
+          cat << 'EOF' > gradle.properties
+          android.useAndroidX=true
+          android.enableJetifier=true
+          EOF
 
           # 2. Membuat settings.gradle
           cat << 'EOF' > settings.gradle
@@ -250,4 +255,3 @@ jobs:
           name: UniversalCopy-Native-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
-          
