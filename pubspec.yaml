@@ -1,0 +1,5 @@
+dependencies:
+  flutter:
+    sdk: flutter
+  permission_handler: ^11.3.0 # Pastikan menggunakan versi terbaru
+  
