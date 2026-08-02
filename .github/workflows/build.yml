@@ -22,12 +22,11 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '17'
-          cache: 'gradle'
+          # Baris cache: 'gradle' telah dihapus
 
       - name: Make Gradlew Executable
         run: chmod +x ./gradlew
 
-      # Menggunakan assembleDebug agar APK bisa langsung diinstal tanpa perlu pengaturan Keystore untuk Release
       - name: Build Debug APK
         run: ./gradlew assembleDebug
 
