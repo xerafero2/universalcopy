@@ -56,12 +56,13 @@ jobs:
           task clean(type: Delete) { delete rootProject.buildDir }
           EOF
 
+          # Menambahkan dependensi Google ML Kit dan menaikkan minSdk ke 30 (Android 11)
           cat << 'EOF' > app/build.gradle
           plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
           android {
               namespace 'com.example.universalcopy'
               compileSdk 34
-              defaultConfig { applicationId "com.example.universalcopy"; minSdk 24; targetSdk 34; versionCode 1; versionName "1.0" }
+              defaultConfig { applicationId "com.example.universalcopy"; minSdk 30; targetSdk 34; versionCode 1; versionName "1.0" }
               buildTypes { release { minifyEnabled false; proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' } }
               compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
               kotlinOptions { jvmTarget = '17' }
@@ -70,6 +71,7 @@ jobs:
               implementation 'androidx.core:core-ktx:1.12.0'
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.android.material:material:1.11.0'
+              implementation 'com.google.mlkit:text-recognition:16.0.1'
           }
           EOF
 
@@ -100,6 +102,7 @@ jobs:
               android:accessibilityFeedbackType="feedbackSpoken"
               android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows"
               android:canRetrieveWindowContent="true"
+              android:canTakeScreenshot="true"
               android:notificationTimeout="100" />
           EOF
 
@@ -109,7 +112,7 @@ jobs:
               android:layout_width="match_parent" android:layout_height="match_parent"
               android:orientation="vertical" android:gravity="center" android:padding="24dp">
               <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                  android:text="Pengaturan Universal Copy" android:textSize="22sp" android:textStyle="bold" android:layout_marginBottom="16dp"/>
+                  android:text="Pengaturan Universal Copy OCR" android:textSize="22sp" android:textStyle="bold" android:layout_marginBottom="16dp"/>
               <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                   android:text="1. Izinkan Notifikasi saat diminta.\n2. Aktifkan layanan aksesibilitas pada tombol di bawah."
                   android:textAlignment="center" android:textSize="16sp" android:layout_marginBottom="32dp"/>
@@ -147,7 +150,7 @@ jobs:
           }
           EOF
 
-          # Kode service dengan kalkulasi presisi Status Bar
+          # Kode Service berbasis Screenshot & OCR ML Kit
           cat << 'EOF' > app/src/main/java/com/example/universalcopy/CopyAccessibilityService.kt
           package com.example.universalcopy
           import android.accessibilityservice.AccessibilityService
@@ -160,18 +163,24 @@ jobs:
           import android.content.Context
           import android.content.Intent
           import android.content.IntentFilter
+          import android.graphics.Bitmap
           import android.graphics.Color
           import android.graphics.PixelFormat
           import android.graphics.Rect
           import android.graphics.drawable.GradientDrawable
           import android.os.Build
+          import android.os.Handler
+          import android.os.Looper
+          import android.view.Display
           import android.view.View
           import android.view.WindowManager
           import android.view.accessibility.AccessibilityEvent
-          import android.view.accessibility.AccessibilityNodeInfo
           import android.widget.FrameLayout
           import android.widget.Toast
           import androidx.core.app.NotificationCompat
+          import com.google.mlkit.vision.common.InputImage
+          import com.google.mlkit.vision.text.TextRecognition
+          import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 
           data class NodeData(val text: String, val rect: Rect)
 
@@ -182,7 +191,12 @@ jobs:
 
               private val copyReceiver = object : BroadcastReceiver() {
                   override fun onReceive(context: Context?, intent: Intent?) {
-                      if (intent?.action == ACTION_TRIGGER_COPY) showSelectionOverlay()
+                      if (intent?.action == ACTION_TRIGGER_COPY) {
+                          // Memberikan waktu 600ms bagi panel notifikasi OS untuk tertutup secara fisik sebelum layar dipotret
+                          Handler(Looper.getMainLooper()).postDelayed({
+                              startOcrProcess()
+                          }, 600)
+                      }
                   }
               }
 
@@ -208,54 +222,85 @@ jobs:
                   val pendingIntent = PendingIntent.getBroadcast(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                   val notification = NotificationCompat.Builder(this, channelId)
                       .setContentTitle("Universal Copy Siap")
-                      .setContentText("Ketuk untuk memilih teks")
-                      .setSmallIcon(android.R.drawable.ic_menu_edit)
+                      .setContentText("Ketuk untuk memindai layar (OCR)")
+                      .setSmallIcon(android.R.drawable.ic_menu_camera)
                       .setContentIntent(pendingIntent)
                       .setOngoing(true)
                       .build()
                   notificationManager.notify(1, notification)
               }
 
+              private fun startOcrProcess() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                      takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                          override fun onSuccess(screenshotResult: ScreenshotResult) {
+                              val hwBuffer = screenshotResult.hardwareBuffer
+                              val colorSpace = screenshotResult.colorSpace
+                              val bitmap = Bitmap.wrapHardwareBuffer(hwBuffer, colorSpace)
+                              if (bitmap != null) {
+                                  val softwareBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                                  hwBuffer.close()
+                                  processImageWithMLKit(softwareBitmap)
+                              } else {
+                                  Toast.makeText(this@CopyAccessibilityService, "Konversi gambar gagal", Toast.LENGTH_SHORT).show()
+                              }
+                          }
+                          override fun onFailure(errorCode: Int) {
+                              Toast.makeText(this@CopyAccessibilityService, "Pengambilan layar gagal: $errorCode", Toast.LENGTH_SHORT).show()
+                          }
+                      })
+                  }
+              }
+
+              private fun processImageWithMLKit(bitmap: Bitmap) {
+                  val image = InputImage.fromBitmap(bitmap, 0)
+                  val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                  
+                  recognizer.process(image)
+                      .addOnSuccessListener { visionText ->
+                          val textList = mutableListOf<NodeData>()
+                          for (block in visionText.textBlocks) {
+                              for (line in block.lines) {
+                                  val rect = line.boundingBox
+                                  val text = line.text
+                                  if (rect != null && text.isNotBlank()) {
+                                      textList.add(NodeData(text, rect))
+                                  }
+                              }
+                          }
+                          if (textList.isEmpty()) {
+                              Toast.makeText(this, "Tidak ada teks terdeteksi", Toast.LENGTH_SHORT).show()
+                          } else {
+                              showSelectionOverlay(textList)
+                          }
+                      }
+                      .addOnFailureListener {
+                          Toast.makeText(this, "Pemrosesan OCR gagal", Toast.LENGTH_SHORT).show()
+                      }
+              }
+
               private fun getStatusBarHeight(): Int {
                   var result = 0
                   val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
-                  if (resourceId > 0) {
-                      result = resources.getDimensionPixelSize(resourceId)
-                  }
+                  if (resourceId > 0) result = resources.getDimensionPixelSize(resourceId)
                   return result
               }
 
-              private fun showSelectionOverlay() {
-                  val rootNode = rootInActiveWindow
-                  if (rootNode == null) {
-                      Toast.makeText(this, "Gagal membaca layar", Toast.LENGTH_SHORT).show()
-                      return
-                  }
-                  
-                  val textList = mutableListOf<NodeData>()
-                  traverseNode(rootNode, textList)
-
-                  if (textList.isEmpty()) {
-                      Toast.makeText(this, "Tidak ada teks yang terdeteksi", Toast.LENGTH_SHORT).show()
-                      return
-                  }
-
+              private fun showSelectionOverlay(textList: List<NodeData>) {
                   removeOverlay()
-
                   overlayView = FrameLayout(this)
-                  overlayView?.setBackgroundColor(Color.parseColor("#80000000")) // Latar belakang redup 50%
+                  overlayView?.setBackgroundColor(Color.parseColor("#80000000"))
 
                   val params = WindowManager.LayoutParams(
                       WindowManager.LayoutParams.MATCH_PARENT,
                       WindowManager.LayoutParams.MATCH_PARENT,
                       WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                       PixelFormat.TRANSLUCENT
                   )
 
                   overlayView?.setOnClickListener { removeOverlay() }
 
-                  // Desain UI mewah dan profesional
                   val shape = GradientDrawable().apply {
                       setColor(Color.parseColor("#33FFFFFF")) 
                       setStroke(3, Color.parseColor("#FFFFFF"))
@@ -270,9 +315,7 @@ jobs:
                       
                       val layoutParams = FrameLayout.LayoutParams(nodeData.rect.width(), nodeData.rect.height())
                       layoutParams.leftMargin = nodeData.rect.left
-                      // Kompensasi presisi sumbu Y
                       layoutParams.topMargin = nodeData.rect.top - statusBarOffset
-                      
                       highlight.layoutParams = layoutParams
 
                       highlight.setOnClickListener {
@@ -281,10 +324,8 @@ jobs:
                           Toast.makeText(this, "Disalin: ${nodeData.text.take(15)}...", Toast.LENGTH_SHORT).show()
                           removeOverlay()
                       }
-                      
                       overlayView?.addView(highlight)
                   }
-                  
                   windowManager.addView(overlayView, params)
               }
 
@@ -293,20 +334,6 @@ jobs:
                       windowManager.removeView(it)
                       overlayView = null
                   }
-              }
-
-              private fun traverseNode(node: AccessibilityNodeInfo?, textList: MutableList<NodeData>) {
-                  if (node == null) return
-                  val text = node.text?.toString() ?: node.contentDescription?.toString()
-                  
-                  if (!text.isNullOrBlank() && node.isVisibleToUser) {
-                      val rect = Rect()
-                      node.getBoundsInScreen(rect)
-                      if (rect.width() > 0 && rect.height() > 0) {
-                          textList.add(NodeData(text, rect))
-                      }
-                  }
-                  for (i in 0 until node.childCount) traverseNode(node.getChild(i), textList)
               }
 
               override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
