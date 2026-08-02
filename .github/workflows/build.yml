@@ -56,7 +56,6 @@ jobs:
           task clean(type: Delete) { delete rootProject.buildDir }
           EOF
 
-          # Menambahkan dependensi Google ML Kit dan menaikkan minSdk ke 30 (Android 11)
           cat << 'EOF' > app/build.gradle
           plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
           android {
@@ -75,11 +74,13 @@ jobs:
           }
           EOF
 
+          # Menambahkan izin VIBRATE untuk haptic feedback
           cat << 'EOF' > app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
               <uses-permission android:name="android.permission.BIND_ACCESSIBILITY_SERVICE" />
+              <uses-permission android:name="android.permission.VIBRATE" />
               <application android:allowBackup="true" android:label="Universal Copy" android:theme="@style/Theme.AppCompat.Light.DarkActionBar">
                   <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
@@ -150,7 +151,7 @@ jobs:
           }
           EOF
 
-          # Kode Service berbasis Screenshot & OCR ML Kit
+          # Kode Service dengan Padding dan Haptic Feedback
           cat << 'EOF' > app/src/main/java/com/example/universalcopy/CopyAccessibilityService.kt
           package com.example.universalcopy
           import android.accessibilityservice.AccessibilityService
@@ -171,6 +172,9 @@ jobs:
           import android.os.Build
           import android.os.Handler
           import android.os.Looper
+          import android.os.VibrationEffect
+          import android.os.Vibrator
+          import android.os.VibratorManager
           import android.view.Display
           import android.view.View
           import android.view.WindowManager
@@ -192,7 +196,8 @@ jobs:
               private val copyReceiver = object : BroadcastReceiver() {
                   override fun onReceive(context: Context?, intent: Intent?) {
                       if (intent?.action == ACTION_TRIGGER_COPY) {
-                          // Memberikan waktu 600ms bagi panel notifikasi OS untuk tertutup secara fisik sebelum layar dipotret
+                          triggerHapticFeedback()
+                          
                           Handler(Looper.getMainLooper()).postDelayed({
                               startOcrProcess()
                           }, 600)
@@ -210,6 +215,27 @@ jobs:
                       registerReceiver(copyReceiver, filter)
                   }
                   showPersistentNotification()
+              }
+
+              private fun triggerHapticFeedback() {
+                  try {
+                      val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                          val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                          vibratorManager.defaultVibrator
+                      } else {
+                          @Suppress("DEPRECATION")
+                          getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                      }
+
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                          vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
+                      } else {
+                          @Suppress("DEPRECATION")
+                          vibrator.vibrate(30)
+                      }
+                  } catch (e: Exception) {
+                      // Mengabaikan error jika perangkat tidak memiliki motor getar
+                  }
               }
 
               private fun showPersistentNotification() {
@@ -241,8 +267,6 @@ jobs:
                                   val softwareBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, false)
                                   hwBuffer.close()
                                   processImageWithMLKit(softwareBitmap)
-                              } else {
-                                  Toast.makeText(this@CopyAccessibilityService, "Konversi gambar gagal", Toast.LENGTH_SHORT).show()
                               }
                           }
                           override fun onFailure(errorCode: Int) {
@@ -268,14 +292,10 @@ jobs:
                                   }
                               }
                           }
-                          if (textList.isEmpty()) {
-                              Toast.makeText(this, "Tidak ada teks terdeteksi", Toast.LENGTH_SHORT).show()
-                          } else {
+                          if (textList.isNotEmpty()) {
                               showSelectionOverlay(textList)
+                              triggerHapticFeedback() // Getaran kedua menandakan overlay siap
                           }
-                      }
-                      .addOnFailureListener {
-                          Toast.makeText(this, "Pemrosesan OCR gagal", Toast.LENGTH_SHORT).show()
                       }
               }
 
@@ -284,6 +304,10 @@ jobs:
                   val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
                   if (resourceId > 0) result = resources.getDimensionPixelSize(resourceId)
                   return result
+              }
+
+              private fun dpToPx(dp: Int): Int {
+                  return (dp * resources.displayMetrics.density).toInt()
               }
 
               private fun showSelectionOverlay(textList: List<NodeData>) {
@@ -304,18 +328,23 @@ jobs:
                   val shape = GradientDrawable().apply {
                       setColor(Color.parseColor("#33FFFFFF")) 
                       setStroke(3, Color.parseColor("#FFFFFF"))
-                      cornerRadius = 12f
+                      cornerRadius = 16f
                   }
 
                   val statusBarOffset = getStatusBarHeight()
+                  val padX = dpToPx(8) // Jarak ekstra horizontal
+                  val padY = dpToPx(4) // Jarak ekstra vertikal
 
                   for (nodeData in textList) {
                       val highlight = View(this)
                       highlight.background = shape
                       
-                      val layoutParams = FrameLayout.LayoutParams(nodeData.rect.width(), nodeData.rect.height())
-                      layoutParams.leftMargin = nodeData.rect.left
-                      layoutParams.topMargin = nodeData.rect.top - statusBarOffset
+                      val layoutParams = FrameLayout.LayoutParams(
+                          nodeData.rect.width() + (padX * 2), 
+                          nodeData.rect.height() + (padY * 2)
+                      )
+                      layoutParams.leftMargin = nodeData.rect.left - padX
+                      layoutParams.topMargin = (nodeData.rect.top - statusBarOffset) - padY
                       highlight.layoutParams = layoutParams
 
                       highlight.setOnClickListener {
