@@ -1,5 +1,13 @@
+name: universal_copy
+description: A new Flutter project.
+publish_to: 'none'
+version: 1.0.0+1
+
+# Tambahkan baris ini
+environment:
+  sdk: '^3.12.0'
+
 dependencies:
   flutter:
     sdk: flutter
-  permission_handler: ^11.3.0 # Pastikan menggunakan versi terbaru
-  
+  permission_handler: ^11.3.0
