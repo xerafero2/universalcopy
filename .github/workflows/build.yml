@@ -4,37 +4,19 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
 
 jobs:
   build:
-    name: Build APK
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      # Masuk ke folder android terlebih dahulu, lalu eksekusi gradle
-      - name: Build Debug APK
-        run: cd android && gradle assembleDebug
-
-      # Mengambil hasil APK dari dalam struktur folder android/app/...
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+      - uses: gradle/actions/setup-gradle@v3
+      - run: gradle assembleDebug
+      - uses: actions/upload-artifact@v4
         with:
           name: UniversalCopy-Native-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 7
-          
+          path: app/build/outputs/apk/debug/app-debug.apk
