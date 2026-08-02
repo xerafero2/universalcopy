@@ -1,0 +1,52 @@
+name: Build Flutter APK
+
+# Kapan action ini dijalankan?
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build and Upload APK
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout (Mengambil) kode dari repository Anda
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. Menyiapkan environment Java (Wajib untuk build Android)
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          cache: 'gradle'
+
+      # 3. Menyiapkan environment Flutter
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          # Opsional: Hapus tanda '#' di bawah ini jika ingin mengunci ke versi Flutter tertentu
+          # flutter-version: '3.19.0' 
+
+      # 4. Mengunduh semua package dari pubspec.yaml
+      - name: Get Dependencies
+        run: flutter pub get
+
+      # 5. Melakukan compile aplikasi menjadi APK (Mode Release)
+      - name: Build APK
+        run: flutter build apk --release
+
+      # 6. Mengunggah file APK ke GitHub agar bisa Anda download
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Universal-Copy-Release-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 7 # File APK akan disimpan di server GitHub selama 7 hari
