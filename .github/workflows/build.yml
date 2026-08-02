@@ -23,18 +23,17 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      # Mengarahkan chmod ke dalam folder android
-      - name: Make Gradlew Executable
-        run: chmod +x android/gradlew
+      # Menginstal Gradle langsung ke server GitHub
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
 
-      # Masuk ke folder android terlebih dahulu, baru jalankan build
+      # Menjalankan build menggunakan perintah 'gradle' (bukan ./gradlew)
       - name: Build Debug APK
-        run: cd android && ./gradlew assembleDebug
+        run: gradle assembleDebug
 
-      # Path APK disesuaikan dengan struktur folder Flutter
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: UniversalCopy-Native-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 7
